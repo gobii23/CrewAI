@@ -1,43 +1,64 @@
 import os
+import pandas as pd
 import chromadb
 import google.generativeai as genai
 from crewai.tools import BaseTool
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from tools.csv_index_tool import CsvIndexTool
 from pydantic import PrivateAttr
 
 class CsvRAGTool(BaseTool):
     name: str = "CsvRAGTool"
     description: str = (
-        "Performs Retrieval-Augmented Generation (RAG) over a structured CSV dataset "
-        "to return accurate and grounded answers. It uses embeddings to retrieve the most "
-        "relevant rows and uses LLM to generate contextual answers."
+        "Indexes a CSV into ChromaDB if needed, retrieves relevant rows using embeddings, "
+        "and answers a query using LLM based only on retrieved rows."
     )
 
     _file_path: str = PrivateAttr()
     _collection_name: str = PrivateAttr()
     _model: any = PrivateAttr()
 
-    def __init__(self, index_tool: CsvIndexTool, **kwargs):
+    def __init__(self, file_path: str, collection_name: str = None, **kwargs):
         super().__init__(**kwargs)
-        self._file_path = index_tool.file_path
-        self._collection_name = index_tool.collection_name
+        self._file_path = file_path
+        self._collection_name = collection_name or self._derive_name()
         self._model = genai.GenerativeModel("gemini-2.5-flash")
+        self._maybe_index_csv()
+
+    def _derive_name(self):
+        return os.path.splitext(os.path.basename(self._file_path))[0].lower().replace(" ", "_")
+
+    def _maybe_index_csv(self):
+        if not os.path.exists(self._file_path):
+            raise FileNotFoundError(f"CSV file not found: {self._file_path}")
+
+        client = chromadb.PersistentClient(path="./chroma_db")
+        collection = client.get_or_create_collection(self._collection_name)
+
+        if collection.count() > 0:
+            return  
+
+        df = pd.read_csv(self._file_path, dtype=str).fillna("")
+        texts = df.astype(str).apply(lambda row: " | ".join(row), axis=1).tolist()
+        metadata = df.to_dict(orient="records")
+
+        embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        embeddings = embedding_model.embed_documents(texts)
+
+        collection.add(
+            documents=texts,
+            embeddings=embeddings,
+            metadatas=metadata,
+            ids=[f"row{i}" for i in range(len(texts))]
+        )
 
     def _run(self, query: str) -> str:
-        if not os.path.exists(self._file_path):
-            return f"File not found: {self._file_path}"
-
         embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
         query_embedding = embedding_model.embed_query(query)
 
         client = chromadb.PersistentClient(path="./chroma_db")
-        try:
-            collection = client.get_collection(self._collection_name)
-        except Exception:
-            return f"Collection '{self._collection_name}' not found. Please index it first."
+        collection = client.get_collection(self._collection_name)
 
-        results = collection.query(query_embeddings=[query_embedding], n_results=10)
+        results = collection.query(query_embeddings=[query_embedding], n_results=500)
         documents = results.get("documents", [[]])[0]
         if not documents:
             return "No relevant documents found."
