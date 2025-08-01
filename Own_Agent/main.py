@@ -2,17 +2,25 @@ from crewai import Agent, Task, Crew, LLM, Process
 from dotenv import load_dotenv
 from crewai_tools import SerperDevTool
 from tools.plot_tool import PlotTool
-from tools.semantic_CSVsearch import AutoSemanticCSVTool
+from tools.csv_rag_tool import CsvRAGTool
 load_dotenv()
 
-search_tool = SerperDevTool()
 
 llm = LLM(
     model="gemini/gemini-2.5-flash"
 )
 
-query = input("Enter your query: ")
 
+
+#TOOLS
+search_tool = SerperDevTool()
+rag_tool = CsvRAGTool(file_path="startup_funding.csv")
+plot_tool = PlotTool()
+
+
+
+
+query = input("Enter your query: ")
 
 gopinath_agent = Agent(
     role="Senior Artificial Intelligence and Machine Learning Engineer",
@@ -43,16 +51,17 @@ data_visualization_task = Task(
     description=(f"""Analyze the provided CSV file to generate a bar chart that answers the user's question.
         Instructions:
         1. Understand the dataset structure and interpret its contents accurately. Stick strictly to the data.
-        2. Use the AutoSemanticCSVTool to explore and extract relevant insights.
-        3. Use the PlotTool for creating visual plots.
+        2. Use the csv_tool to convert the csv into a Vector DB and then use rag_tool to explore and extract relevant insights.
+        3. Use the plot_tool for creating visual plots.
         4. You must only return a plot image as the final output, no explanations or text.
-        Input Format for PlotTool should be a JSON string like: {{\"labels\": [...], \"values\": [...], \"title\": ..., \"xlabel\": ..., \"ylabel\": ...}}
+        Input Format for plot_tool should be a JSON string like: {{\"labels\": [...], \"values\": [...], \"title\": ..., \"xlabel\": ..., \"ylabel\": ...}}
         User Question:{query}"""),
     expected_output="Only a bar chart image that visually answers the user's question based on the CSV data."
         "No additional text or explanation should be included in the final output",
-    tools=[AutoSemanticCSVTool(csv_path="IPL.csv"), PlotTool()],
+    tools=[rag_tool, plot_tool],
     agent=gopinath_agent
 )
+
 
 
 research_innovation_task = Task(
