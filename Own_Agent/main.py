@@ -1,6 +1,5 @@
-from crewai import Agent, Task, Crew, LLM, Process
+from crewai import Agent, Task, Crew, LLM
 from dotenv import load_dotenv
-load_dotenv()
 import re
 import os
 import json
@@ -10,20 +9,19 @@ from tools.plot_tool import PlotTool
 from tools.eda_tool import EDATool
 from tools.csv_rag_tool import CsvRAGTool
 from tools.terminal_tool import TerminalTool
-from tools.fine_tuning import FineTuningTool
+from tools.fine_tuning_unsloth_tool import FineTuningTool
+from tools.fine_tuning_transformer_tool import FTTool
 from tools.data_preprocessing_tool import DataPreprocessingTool
 
+load_dotenv()
 
-#LLM
-llm = LLM(
-    model="gemini/gemini-2.5-flash"
-    )
+# LLM
+llm = LLM(model="gemini/gemini-2.5-flash")
 
 # llm = LLM(
 #     model="ollama/TinyLlama",
 #     base_url="http://localhost:11434"
 # )
-
 
 
 # TOOLS
@@ -34,13 +32,14 @@ rag_tool = CsvRAGTool(file_path="data/csv_cleaned_data/titanic_data_cleaned.csv"
 plot_tool = PlotTool()
 preprocessing_tool = DataPreprocessingTool()
 fine_tuning_tool = FineTuningTool()
+ft_tool = FTTool()
 
 
 # INPUT
 query = input("Enter your query: ")
 
-model_name = input("Enter model name: ")
-domain_name = input("What domain should the model be fine-tuned?: ")
+# model_name = input("Enter model name: ")
+# domain_name = input("What domain should the model be fine-tuned?: ")
 # data_path = input("Enter a name of csv: ")
 # file_path = f"data/csv_data/{data_path}.csv"
 # csv_path = (f"data/csv_cleaned_data/{data_path}_cleaned.csv")
@@ -58,6 +57,13 @@ domain_name = input("What domain should the model be fine-tuned?: ")
 #     print("No valid columns selected. Exiting.")
 
 
+ft_model_name = input("Enter the name of the model: ")
+ft_task_type = input(
+    "Enter task type (causal_lm, sequence_classification, token_classification): "
+)
+ft_dataset = input("Enter dataset name or path: ")
+
+
 # FILENAME
 safe_filename = re.sub(r"[^a-zA-Z0-9_\-]", "_", query.strip().lower())[:50]
 summary_filename = f"output/summary/summary_{safe_filename}.md"
@@ -65,7 +71,7 @@ os.makedirs("output/summary", exist_ok=True)
 
 
 # AGENTS
-#AGENT-1
+# AGENT-1
 gopinath_agent = Agent(
     role="Senior Artificial Intelligence and Machine Learning Engineer",
     goal=(
@@ -91,10 +97,10 @@ gopinath_agent = Agent(
     inject_date=True,
     llm=llm,
     verbose=True,
-    allow_delegation=True
+    allow_delegation=True,
 )
 
-#AGENT-2
+# AGENT-2
 researcher_agent = Agent(
     role="Senior Innovation and Trend Analyst",
     goal=f"""Identify, validate, and synthesize the most recent and impactful innovations, partnerships, regulatory shifts, and technological breakthroughs for the given query. 
@@ -108,12 +114,12 @@ researcher_agent = Agent(
     and dig deeper than surface-level reporting. You are driven by a mission to deliver intelligence that is not just informative 
     but transformative — the kind of analysis that can guide billion-dollar investments and influence entire industries.""",
     verbose=True,
-    inject_date= True,
-    llm = llm,
-    allow_delegation=True
+    inject_date=True,
+    llm=llm,
+    allow_delegation=True,
 )
 
-#AGENT-3
+# AGENT-3
 data_collector_agent = Agent(
     role="Kaggle Dataset Researcher & Ingestion Specialist",
     goal="""Efficiently locate the most relevant and recent Kaggle dataset for a given query, download it via the Kaggle CLI, 
@@ -125,13 +131,13 @@ data_collector_agent = Agent(
     You have a methodical approach to validating dataset freshness, relevance, and completeness — and you never leave a user wondering about the data’s origin or update history.  
     In your toolkit are the technical skills to work seamlessly with web search filters, regex for parsing dataset URLs, and command-line automation for downloading, unzipping, and cleaning data. 
     When you deliver a dataset, the recipient knows it’s been vetted, organized, and prepared for analysis with zero friction.""",
-    llm = llm,
-    inject_date= True,
+    llm=llm,
+    inject_date=True,
     verbose=True,
-    allow_delegation=True
+    allow_delegation=True,
 )
 
-#AGENT-4
+# AGENT-4
 data_preprocessor_agent = Agent(
     role="Interactive Data Cleaning & Encoding Specialist",
     goal="""Assist users in inspecting, selecting, and preprocessing specific dataset columns while preserving all unselected columns exactly as they are. 
@@ -150,10 +156,10 @@ data_preprocessor_agent = Agent(
     verbose=True,
     llm=llm,
     inject_date=True,
-    allow_delegation=True
+    allow_delegation=True,
 )
 
-#AGENT-5
+# AGENT-5
 eda_agent = Agent(
     role="Exploratory Data Analyst & Visualization Expert",
     goal="""Perform a complete exploratory data analysis (EDA) on the provided dataset, generating clear,
@@ -171,10 +177,10 @@ eda_agent = Agent(
     llm=llm,
     verbose=True,
     inject_date=True,
-    allow_delegation=True
+    allow_delegation=True,
 )
 
-#AGENT-6
+# AGENT-6
 finetuning_agent = Agent(
     role="LoRA Fine-Tuning Expert",
     goal="""Automate the complete fine-tuning process of Hugging Face-compatible models using the Unsloth framework with Low-Rank Adaptation (LoRA). 
@@ -192,8 +198,36 @@ finetuning_agent = Agent(
     You develop production-ready model fine-tuned models without the user having to touch a command line.""",
     llm=llm,
     verbose=True,
-    inject_date= True,
-    allow_delegation=True
+    inject_date=True,
+    allow_delegation=True,
+)
+
+# AGENT-7
+ft_agent = Agent(
+    role="HuggingFace Fine-Tuning Expert",
+    goal=(
+        """Act as a top-tier HuggingFace trainer capable of orchestrating the entire fine-tuning pipeline.
+        Guide the user to select a valid HuggingFace task type ('causal_lm', 'sequence_classification', or 'token_classification'),
+        validate all provided inputs including model_name, dataset_name_or_path, and training arguments,
+        auto-correct obvious parameter mistakes, dynamically load the correct transformer model class,
+        prepare datasets with optimal tokenization strategies for the task type,
+        configure sensible but high-performing defaults for TrainingArguments while honoring user overrides,
+        and execute fine-tuning exclusively using the FTTool.
+        Return only the exact JSON object provided by FTTool — no extra commentary, formatting, or explanation."""
+    ),
+    backstory=(
+        """You are an elite machine learning architect with deep expertise in HuggingFace Transformers,
+        specializing in maximizing training efficiency and model performance. 
+        Over the years, you’ve orchestrated countless fine-tuning runs across NLP tasks, 
+        balancing precision engineering with rapid prototyping. 
+        You are obsessive about parameter validation, preventing wasted GPU cycles, 
+        and ensuring reproducibility. Your workflow is surgical: 
+        prompt, validate, adapt, execute, and deliver — with zero noise in the output."""
+    ),
+    verbose=True,
+    llm=llm,
+    memory=True,
+    allow_delegation=False,
 )
 
 
@@ -260,9 +294,9 @@ data_collection_Ingestion_task = Task(
     2. From the dataset’s Kaggle URL, extract the dataset slug in the form: ownername/dataset-name.
     3. Using the Kaggle CLI, perform the following steps:
         a. Download the dataset:
-            kaggle datasets download -d <slug> -p ./data --unzip=false
-        b. Extract the contents into `./data`.
-        c. Delete all non-CSV files in `./data`, preserving only `.csv` files.
+            kaggle datasets download -d <slug> -p ./data/csv_data --unzip=false
+        b. Extract the contents into `./data/csv_data`.
+        c. Delete all non-CSV files in `./data/csv_data`, preserving only `.csv` files.
         d. Confirm (e.g., via listing) that only CSV files remain.
     Implementation notes:
     1. To extract the slug from a Kaggle dataset URL like `https://www.kaggle.com/datasets/ownername/dataset-name`, use a regex such as: `https?://www\.kaggle\.com/datasets/([^/]+/[^/?#]+)`.
@@ -270,17 +304,17 @@ data_collection_Ingestion_task = Task(
 
     ```bash
     # Download
-    kaggle datasets download -d "$SLUG" -p ./data
+    kaggle datasets download -d "$SLUG" -p ./data/csv_data
 
     # Unzip and remove originals
-    unzip -o ./data/"${{SLUG##*/}}".zip -d ./data
-    rm ./data/*.zip
+    unzip -o ./data/csv_data/"${{SLUG##*/}}".zip -d ./data/csv_data
+    rm ./data/csv_data/*.zip
 
     # Remove non-CSV files
-    find ./data -type f ! -name "*.csv" -delete
+    find ./data/csv_data/ -type f ! -name "*.csv" -delete
 
     # Confirm only CSVs remain
-    ls -1 ./data
+    ls -1 ./data/csv_data
 
     If no recent dataset exists, fall back to the most relevant one regardless of age, but indicate its last update date.""",
     expected_output="""The dataset has been successfully downloaded and any CSV files it contains are placed in the "./data/csv_data" directory.""",
@@ -323,125 +357,161 @@ data_collection_Ingestion_task = Task(
 #                 a. This process must be interactive. Ask the user for input during execution.
 #                 b. Do not process any columns that the user did not select.
 #                 c. Ensure the final dataset is suitable for machine learning pipelines — no nulls in processed columns, and encoding is done cleanly.""",
-#     expected_output="The user-selected columns are cleaned and encoded, and the resulting dataset is saved as a CSV in ./data/csv_data/csv_cleaned_data/.",
+#     expected_output="The user-selected columns are cleaned and encoded, and the resulting dataset is saved as a CSV in ./data/csv_cleaned_data/.",
 #     tools=[preprocessing_tool],
 #     agent=data_preprocessor_agent,
+#     human_input=True
 # )
 
-# #TASK-5
-# exploratory_data_analysis = Task(
-#     description=(
-#         f"""Perform a thorough Exploratory Data Analysis (EDA) on the dataset loaded from {csv_path} "
-#         "You must generate charts that help in understanding the data distribution, outliers, and correlations.\n\n"
-#         "Specifically, your job is to:\n"
-#         "1. Generate histograms and boxplots for all numerical columns to analyze distributions and outliers.\n"
-#         "2. Generate bar charts for all categorical columns to understand frequency distributions.\n"
-#         "3. Create a correlation heatmap to show relationships between numerical variables.\n"
-#         "4. Save all the plots in a structured folder.\n"
-#         "5. Return the output directory and total number of charts generated.\n\n"
-#         "Make sure the CSV file path is valid and handle errors gracefully."""
-#     ),
-#     expected_output=(
-#         "A JSON string with the following structure:\n"
-#         "{{\n"
-#         "  'status': 'success',\n"
-#         "  'output_dir': '<path_to_output_directory>',\n"
-#         "  'charts_generated': <total_number_of_charts>\n"
-#         "}}\n\n"
-#         "All charts should be saved as PNG files in the specified output folder."
-#     ),
-#     tools=[rag_tool, eda_tool],
-#     agent=eda_agent,
+# # #TASK-5
+# # exploratory_data_analysis = Task(
+# #     description=(
+# #         f"""Perform a thorough Exploratory Data Analysis (EDA) on the dataset loaded from {csv_path} "
+# #         "You must generate charts that help in understanding the data distribution, outliers, and correlations.\n\n"
+# #         "Specifically, your job is to:\n"
+# #         "1. Generate histograms and boxplots for all numerical columns to analyze distributions and outliers.\n"
+# #         "2. Generate bar charts for all categorical columns to understand frequency distributions.\n"
+# #         "3. Create a correlation heatmap to show relationships between numerical variables.\n"
+# #         "4. Save all the plots in a structured folder.\n"
+# #         "5. Return the output directory and total number of charts generated.\n\n"
+# #         "Make sure the CSV file path is valid and handle errors gracefully."""
+# #     ),
+# #     expected_output=(
+# #         "A JSON string with the following structure:\n"
+# #         "{{\n"
+# #         "  'status': 'success',\n"
+# #         "  'output_dir': '<path_to_output_directory>',\n"
+# #         "  'charts_generated': <total_number_of_charts>\n"
+# #         "}}\n\n"
+# #         "All charts should be saved as PNG files in the specified output folder."
+# #     ),
+# #     tools=[rag_tool, eda_tool],
+# #     agent=eda_agent,
+# # )
+
+
+# #TASK-6
+# fine_tuning_task_unsloth = Task(
+#     description = f"""
+#         Fine-tune a Hugging Face-compatible base language model using the Unsloth framework with Low-Rank Adaptation (LoRA).
+#         You are tasked with fully automating the fine-tuning pipeline. You will receive only two natural language inputs:
+#             1. `base_model_name` (str): A natural language reference to a base model (e.g., "TinyLlama", "Mistral", "LLaMA 3").
+#             The user input : {model_name}
+#             2. `dataset_topic` (str): A natural language description of the domain or use-case (e.g., "payslip data", "ecommerce", "medical questions").
+#             The user input : {domain_name}
+#         Your responsibilities are:
+#             1. Model Resolution
+#                 - Convert the `base_model_name` to its exact Hugging Face model ID. Examples:
+#                 - "TinyLlama" → `"TinyLlama/TinyLlama-1.1B-Chat-v1.0"`
+#                 - "LLaMA 3" → `"unsloth/llama-3-8b-Instruct"`
+#                 - "Mistral" → `"mistralai/Mistral-7B-Instruct-v0.2"`
+#                 - Ensure the model is LoRA-compatible and supported by Unsloth.
+#             2. Dataset Discovery
+#                 - Automatically search Hugging Face or the web for a high-quality dataset that matches `dataset_topic`.
+#                 - Prioritize datasets with instruction-tuning format: fields like `instruction`, `input`, `output`, or `response`.
+#                 - If necessary, adapt the dataset format to create a standardized instruction-output pair.
+#             3. Validation & Preprocessing
+#                 - Check that the dataset has enough samples and is usable for fine-tuning.
+#                 - Log dataset size, sample structure, and field mapping.
+#             4. Optimal Fine-Tuning Configuration
+#                 - Based on model size and dataset size, choose:
+#                 - `batch_size`
+#                 - `learning_rate`
+#                 - `num_epochs` or `max_steps`
+#                 - `gradient_accumulation_steps`
+#                 - `LoRA` parameters (`r`, `alpha`, `dropout`, `target_modules`)
+#                 - Dynamically adjust settings to avoid memory overflows, especially on smaller GPUs.
+#                 - Favor lower-bit precision (e.g., 4-bit or 8-bit) and mixed precision training for efficiency.
+#             5. Execute Fine-Tuning
+#                 - Call the `unsloth_finetune` tool with the following arguments:
+#                 - `base_model_id` (e.g., `"TinyLlama/TinyLlama-1.1B-Chat-v1.0"`)
+#                 - `dataset_id` (e.g., `"yourorg/payslip-instructions"`)
+#                 - `finetune_settings`: A dictionary of chosen hyperparameters and LoRA config.
+#             6. Post-Training Handling
+#                 - Ensure the fine-tuned model is saved locally or pushed to the Hugging Face Hub.
+#                 - Return final status: path to the saved model or model ID if published.
+#                 - Do not request additional input from the user during the process.
+#             Your goal is to automate end-to-end LoRA fine-tuning with Unsloth and deliver a production-ready model tailored to the specified use-case.""",
+#     expected_output = """ A detailed markdown report summarizing the fine-tuning process.
+#         It must include:
+#             -  Model selected: Full Hugging Face model ID
+#             -  Dataset selected: Full Hugging Face dataset ID
+#             -  Fine-tuning configuration:
+#                 - Batch size
+#                 - Gradient accumulation
+#                 - LoRA R / Alpha / Dropout
+#                 - Learning rate
+#                 - Optimizer
+#                 - Max sequence length
+#                 - Max training steps
+#             -  Output directory path where the model and tokenizer were saved
+#             -  Any training logs, if available (last few lines)
+#             -  Confirmation message that the fine-tuning was completed successfully
+#             -  If failed, provide clear error reason
+#         Example final output:
+
+#                 Fine-tuning Summary
+#                ----------------------
+#             - Model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+#             - Dataset: open-finance/payslip-tasks
+#             - Batch size: 2
+#             - Gradient Accumulation: 4
+#             - Max steps: 50
+#             - Learning rate: 2e-4
+#             - LoRA: R=16, Alpha=16, Dropout=0.1
+#             - Output dir: ./finetuned-models/tinyllama-payslip-tasks
+
+#             Training Logs (Last 3 lines):
+#                 Step 48/50 - loss: 1.92
+#                 Step 49/50 - loss: 1.87
+#                 Step 50/50 - loss: 1.82
+
+#         Model and tokenizer saved successfully.""",
+#         tools=[search_tool, fine_tuning_tool],
+#         agent=finetuning_agent
 # )
 
+# TASK-7
 
-#TASK-6
-fine_tuning_task = Task(
-    description = f"""
-        Fine-tune a Hugging Face-compatible base language model using the Unsloth framework with Low-Rank Adaptation (LoRA).
-        You are tasked with fully automating the fine-tuning pipeline. You will receive only two natural language inputs:
-            1. `base_model_name` (str): A natural language reference to a base model (e.g., "TinyLlama", "Mistral", "LLaMA 3").
-            The user input : {model_name}
-            2. `dataset_topic` (str): A natural language description of the domain or use-case (e.g., "payslip data", "ecommerce", "medical questions").
-            The user input : {domain_name}
-        Your responsibilities are:
-            1. Model Resolution
-                - Convert the `base_model_name` to its exact Hugging Face model ID. Examples:
-                - "TinyLlama" → `"TinyLlama/TinyLlama-1.1B-Chat-v1.0"`
-                - "LLaMA 3" → `"unsloth/llama-3-8b-Instruct"`
-                - "Mistral" → `"mistralai/Mistral-7B-Instruct-v0.2"`
-                - Ensure the model is LoRA-compatible and supported by Unsloth.
-            2. Dataset Discovery
-                - Automatically search Hugging Face or the web for a high-quality dataset that matches `dataset_topic`.
-                - Prioritize datasets with instruction-tuning format: fields like `instruction`, `input`, `output`, or `response`.
-                - If necessary, adapt the dataset format to create a standardized instruction-output pair.
-            3. Validation & Preprocessing
-                - Check that the dataset has enough samples and is usable for fine-tuning.
-                - Log dataset size, sample structure, and field mapping.
-            4. Optimal Fine-Tuning Configuration
-                - Based on model size and dataset size, choose:
-                - `batch_size`
-                - `learning_rate`
-                - `num_epochs` or `max_steps`
-                - `gradient_accumulation_steps`
-                - `LoRA` parameters (`r`, `alpha`, `dropout`, `target_modules`)
-                - Dynamically adjust settings to avoid memory overflows, especially on smaller GPUs.
-                - Favor lower-bit precision (e.g., 4-bit or 8-bit) and mixed precision training for efficiency.
-            5. Execute Fine-Tuning
-                - Call the `unsloth_finetune` tool with the following arguments:
-                - `base_model_id` (e.g., `"TinyLlama/TinyLlama-1.1B-Chat-v1.0"`)
-                - `dataset_id` (e.g., `"yourorg/payslip-instructions"`)
-                - `finetune_settings`: A dictionary of chosen hyperparameters and LoRA config.
-            6. Post-Training Handling
-                - Ensure the fine-tuned model is saved locally or pushed to the Hugging Face Hub.
-                - Return final status: path to the saved model or model ID if published.
-                - Do not request additional input from the user during the process.
-            Your goal is to automate end-to-end LoRA fine-tuning with Unsloth and deliver a production-ready model tailored to the specified use-case.""",
-    expected_output = """ A detailed markdown report summarizing the fine-tuning process.
-        It must include:
-            -  Model selected: Full Hugging Face model ID
-            -  Dataset selected: Full Hugging Face dataset ID
-            -  Fine-tuning configuration:
-                - Batch size
-                - Gradient accumulation
-                - LoRA R / Alpha / Dropout
-                - Learning rate
-                - Optimizer
-                - Max sequence length
-                - Max training steps
-            -  Output directory path where the model and tokenizer were saved
-            -  Any training logs, if available (last few lines)
-            -  Confirmation message that the fine-tuning was completed successfully
-            -  If failed, provide clear error reason
-        Example final output:
+ft_task_transformer = Task(
+    description=f"""
+        Prompt the user to choose the HuggingFace task type they want to perform (options: "causal_lm", "sequence_classification", or "token_classification").  
+        Once the task type is selected, automatically collect and validate all required parameters:  
+        a. model_name (string, valid HuggingFace model ID or local path)  
+        b. dataset_name_or_path (string, valid HuggingFace dataset name or local file path)  
+        c. task_type (string, must be one of the supported task types)  
+        d. optional training arguments (learning_rate, num_epochs, train_batch_size, eval_batch_size, max_length, evaluation_strategy, weight_decay, logging_steps).  
 
-                Fine-tuning Summary
-               ----------------------
-            - Model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
-            - Dataset: open-finance/payslip-tasks
-            - Batch size: 2
-            - Gradient Accumulation: 4
-            - Max steps: 50
-            - Learning rate: 2e-4
-            - LoRA: R=16, Alpha=16, Dropout=0.1
-            - Output dir: ./finetuned-models/tinyllama-payslip-tasks
+        Fine-tune the HuggingFace model {ft_model_name} for the task {ft_task_type} using the dataset {ft_dataset}. 
+        Use the FineTuneTool to configure and run training. Pass model_name='{ft_model_name}, dataset_name_or_path={ft_dataset}, task_type={ft_task_type}, and any additional training arguments.
 
-            Training Logs (Last 3 lines):
-                Step 48/50 - loss: 1.92
-                Step 49/50 - loss: 1.87
-                Step 50/50 - loss: 1.82
-
-        Model and tokenizer saved successfully.""",
-        tools=[search_tool, fine_tuning_tool],
-        agent=finetuning_agent
+        After collecting and validating inputs:  
+        1. Dynamically load the correct model class based on task_type:  
+            a. causal_lm -> AutoModelForCausalLM  
+            b. sequence_classification -> AutoModelForSequenceClassification  
+            c. token_classification -> AutoModelForTokenClassification  
+        2. Load and tokenize the dataset according to task_type, applying appropriate truncation, padding, and max_length rules.  
+        3. Automatically configure TrainingArguments with sensible defaults, allowing overrides from user-supplied training arguments.  
+        4. Run fine-tuning using the FTTool, passing model_name, dataset_name_or_path, task_type, and all additional arguments to `_run()`.  
+        5. On completion, return **only** the JSON string returned by FTTool containing:  
+            a. "status" (success or error)  
+            b. "output_dir" (model save path)  
+            c. "message" (summary of fine-tuning)  
+        Do not include any additional text, explanations, or formatting outside the returned JSON.""",
+    expected_output="""A single JSON object returned by the FineTuneTool containing exactly these keys:
+        model_save_path(string) – the path where the fine-tuned model is stored, training_details(object) – metrics and configuration used during training,and status (string) – the final training status (e.g., 'success', 'failed').
+        No extra text, explanations, or formatting outside of the JSON object.""",
+    tools=[ft_tool],
+    agent=ft_agent,
 )
 
 
 # CREW
 crew = Crew(
-    agents=[gopinath_agent, data_collector_agent, data_preprocessor_agent, eda_agent, finetuning_agent, researcher_agent],
-    tasks=[data_collection_Ingestion_task],
-    verbose=True
+    agents=[ft_agent],
+    tasks=[ft_task_transformer],
+    verbose=True,
+    memory=True,
 )
 
 
