@@ -1,0 +1,15 @@
+chromadb
+crewai
+crewai[tools]
+datasets
+langchain-google-genai
+matplotlib
+pandas
+pydantic
+scikit-learn
+seaborn
+torch
+transformers
+trl
+tqdm
+unsloth
