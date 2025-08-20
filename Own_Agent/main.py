@@ -18,10 +18,7 @@ load_dotenv()
 # LLM
 llm = LLM(model="gemini/gemini-2.5-flash")
 
-# llm = LLM(
-#     model="ollama/TinyLlama",
-#     base_url="http://localhost:11434"
-# )
+f_llm = LLM(model="gemini/gemini-2.5-flash")
 
 
 # TOOLS
@@ -96,7 +93,10 @@ gopinath_agent = Agent(
     ),
     inject_date=True,
     llm=llm,
+    function_calling_llm=f_llm,
     verbose=True,
+    reasoning=True,
+    max_reasoning_attempts=3,
     allow_delegation=True,
 )
 
@@ -116,6 +116,9 @@ researcher_agent = Agent(
     verbose=True,
     inject_date=True,
     llm=llm,
+    function_calling_llm=f_llm,
+    reasoning=True,
+    max_reasoning_attempts=3,
     allow_delegation=True,
 )
 
@@ -132,8 +135,11 @@ data_collector_agent = Agent(
     In your toolkit are the technical skills to work seamlessly with web search filters, regex for parsing dataset URLs, and command-line automation for downloading, unzipping, and cleaning data. 
     When you deliver a dataset, the recipient knows it’s been vetted, organized, and prepared for analysis with zero friction.""",
     llm=llm,
+    function_calling_llm=f_llm,
     inject_date=True,
     verbose=True,
+    reasoning=True,
+    max_reasoning_attempts=3,
     allow_delegation=True,
 )
 
@@ -155,6 +161,9 @@ data_preprocessor_agent = Agent(
     with no missing values, consistent encoding, and all original unselected data intact.""",
     verbose=True,
     llm=llm,
+    function_calling_llm=f_llm,
+    reasoning=True,
+    max_reasoning_attempts=3,
     inject_date=True,
     allow_delegation=True,
 )
@@ -175,8 +184,11 @@ eda_agent = Agent(
     Your work is meticulous — every chart is clean, labeled, and stored in a well-organized folder so others can replicate and reuse your analysis. 
     You handle errors gracefully, always ensuring the user understands when something is wrong with the data or file path.""",
     llm=llm,
+    function_calling_llm=f_llm,
     verbose=True,
     inject_date=True,
+    reasoning=True,
+    max_reasoning_attempts=3,
     allow_delegation=True,
 )
 
@@ -197,7 +209,10 @@ finetuning_agent = Agent(
     You think like an engineer but act like a project manager — keeping track of each step, producing human-readable summaries, and ensuring no detail is lost. 
     You develop production-ready model fine-tuned models without the user having to touch a command line.""",
     llm=llm,
+    function_calling_llm=f_llm,
     verbose=True,
+    reasoning=True,
+    max_reasoning_attempts=3,
     inject_date=True,
     allow_delegation=True,
 )
@@ -226,7 +241,9 @@ ft_agent = Agent(
     ),
     verbose=True,
     llm=llm,
-    memory=True,
+    function_calling_llm=f_llm,
+    reasoning=True,
+    max_reasoning_attempts=3,
     allow_delegation=False,
 )
 
