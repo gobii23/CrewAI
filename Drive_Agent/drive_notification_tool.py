@@ -1,5 +1,6 @@
-import os, pickle, re, time, base64
-from email.mime.text import MIMEText
+import os
+import pickle
+import re
 from typing import Optional, Type
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -7,13 +8,15 @@ from google.auth.transport.requests import Request
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 
-# ---------------- AUTHENTICATION ----------------
+# ---------------- MD FILE ----------------
+MD_FILE = "DriveWatcher.md"
+
+# ---------------- AUTH ----------------
 def authenticate(scopes):
     creds = None
     if os.path.exists("token.pickle"):
         with open("token.pickle", "rb") as token:
             creds = pickle.load(token)
-
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -24,12 +27,38 @@ def authenticate(scopes):
             pickle.dump(creds, token)
     return creds
 
-# ---------------- HELPER: Extract Folder ID ----------------
+# ---------------- HELPERS ----------------
 def extract_folder_id(folder_input: str) -> str:
     match = re.search(r"folders/([a-zA-Z0-9_-]+)", folder_input)
     return match.group(1) if match else folder_input
 
-# ---------------- HELPER: Full Path ----------------
+def load_seen_items():
+    if os.path.exists("seen_items.pkl"):
+        with open("seen_items.pkl", "rb") as f:
+            return pickle.load(f)
+    return {}
+
+def save_seen_items(seen_items):
+    with open("seen_items.pkl", "wb") as f:
+        pickle.dump(seen_items, f)
+
+def list_all_items(drive_service, folder_id):
+    """Recursively list all files and folders under a given folder_id."""
+    items = []
+    results = drive_service.files().list(
+        q=f"'{folder_id}' in parents and trashed=false",
+        fields="files(id, name, mimeType, createdTime, modifiedTime, parents, lastModifyingUser)",
+        pageSize=1000
+    ).execute()
+
+    for item in results.get("files", []):
+        items.append(item)
+        # If it's a folder, recurse into it
+        if item["mimeType"] == "application/vnd.google-apps.folder":
+            items.extend(list_all_items(drive_service, item["id"]))
+
+    return items
+
 def get_full_path(drive_service, file_id, top_folder_id):
     path_parts = []
     def build_path(fid):
@@ -41,162 +70,96 @@ def get_full_path(drive_service, file_id, top_folder_id):
             parents = file.get("parents", [])
             if parents:
                 build_path(parents[0])
-        except:
+        except Exception:
             path_parts.insert(0, "Unknown")
     build_path(file_id)
-    return "/" + "/".join(path_parts).replace("\\", "/")
+    return "/" + "/".join(path_parts)
 
-# ---------------- EMAIL SENDER ----------------
-def send_email(service, to, subject, body):
-    message = MIMEText(body, "html")
-    message["to"] = to
-    message["subject"] = subject
-    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    service.users().messages().send(userId="me", body={"raw": raw}).execute()
-    print(f"📧 Email sent to {to}: {subject}")
+# ---------------- MD LOGGING ----------------
+def save_to_md(logs, md_file=MD_FILE):
+    file_exists = os.path.exists(md_file)
+    with open(md_file, "a", encoding="utf-8") as f:
+        if not file_exists or os.stat(md_file).st_size == 0:
+            f.write("| Type | Name | Path | Created | Modified | Committed By |\n")
+            f.write("|------|------|------|---------|---------|--------------|\n")
+        for log in logs:
+            parts = log.split("\t")
+            f.write("| " + " | ".join(parts) + " |\n")
 
-# ---------------- SAVE/LOAD SEEN ITEMS ----------------
-def load_seen_items():
-    if os.path.exists("seen_items.pkl"):
-        with open("seen_items.pkl", "rb") as f:
-            return pickle.load(f)
-    return {}
-
-def save_seen_items(seen_items):
-    with open("seen_items.pkl", "wb") as f:
-        pickle.dump(seen_items, f)
-
-# ---------------- LIST ALL ITEMS RECURSIVELY ----------------
-def list_all_items(drive_service, folder_id):
-    items = []
-    results = drive_service.files().list(
-        q=f"'{folder_id}' in parents and trashed=false",
-        fields="files(id, name, mimeType, createdTime, modifiedTime, owners, lastModifyingUser(displayName,emailAddress))",
-        pageSize=1000
-    ).execute()
-    for item in results.get("files", []):
-        items.append(item)
-        if item["mimeType"] == "application/vnd.google-apps.folder":
-            items.extend(list_all_items(drive_service, item["id"]))
-    return items
-
-# ---------------- WATCH FOLDER ----------------
-def watch_folder(drive_service, gmail_service, folder_id, recipient_email, interval=15, email_batch_interval=60):
+# ---------------- CHECK FOR CHANGES ----------------
+def check_for_changes(drive_service, folder_id):
+    """Run once to detect changes compared to previous state (recursive)."""
     seen_items = load_seen_items()
-    changes_batch = []
-    last_email_time = time.time()
-    print(f"👀 Watching folder {folder_id} every {interval}s...")
+    items = list_all_items(drive_service, folder_id)
+    current_ids = set()
+    logs = []
 
-    while True:
-        try:
-            items = list_all_items(drive_service, folder_id)
-            current_time = time.time()
-            current_ids = set()
+    for item in items:
+        item_id = item["id"]
+        current_ids.add(item_id)
+        item_name = item["name"]
+        created = item.get("createdTime", "Unknown")
+        modified = item.get("modifiedTime", "Unknown")
 
-            for item in items:
-                item_id = item["id"]
-                current_ids.add(item_id)
-                item_name = item["name"]
-                item_type = "Folder" if item["mimeType"] == "application/vnd.google-apps.folder" else "File"
-                created = item.get("createdTime")
-                modified = item.get("modifiedTime")
+        committed_by = "Unknown"
+        if "lastModifyingUser" in item:
+            user = item["lastModifyingUser"]
+            committed_by = user.get("displayName", "Unknown")
+            if "emailAddress" in user:
+                committed_by += f" ({user['emailAddress']})"
 
-                if item_type == "File":
-                    user = item.get("lastModifyingUser", {})
-                    user_info = f"{user.get('displayName','Unknown')} ({user.get('emailAddress','N/A')})"
-                else:
-                    owner = item.get("owners", [{}])[0]
-                    user_info = f"{owner.get('displayName','Unknown')} ({owner.get('emailAddress','N/A')})"
+        path = get_full_path(drive_service, item_id, folder_id)
 
-                full_path = get_full_path(drive_service, item_id, folder_id)
-                link = f"https://drive.google.com/drive/folders/{item_id}" if item_type=="Folder" else f"https://drive.google.com/file/d/{item_id}/view"
+        # --- New item ---
+        if item_id not in seen_items:
+            seen_items[item_id] = {
+                "name": item_name,
+                "path": path,
+                "created": created,
+                "modified": modified,
+                "committed_by": committed_by
+            }
+            logs.append(f"Created/Uploaded\t{item_name}\t{path}\t{created}\t{modified}\t{committed_by}")
 
-                if item_id not in seen_items:
-                    changes_batch.append({
-                        "type": f"🆕 {item_type}",
-                        "name": item_name,
-                        "path": full_path,
-                        "created": created,
-                        "modified": modified,
-                        "user": user_info,
-                        "link": link
-                    })
-                elif seen_items[item_id] != modified:
-                    changes_batch.append({
-                        "type": f"✏️ Updated {item_type}",
-                        "name": item_name,
-                        "path": full_path,
-                        "created": created,
-                        "modified": modified,
-                        "user": user_info,
-                        "link": link
-                    })
+        # --- Modified item ---
+        elif seen_items[item_id]["modified"] != modified:
+            seen_items[item_id]["modified"] = modified
+            logs.append(f"Edited\t{item_name}\t{path}\t{seen_items[item_id]['created']}\t{modified}\t{committed_by}")
 
-                seen_items[item_id] = modified
+    # --- Deleted items ---
+    deleted_ids = set(seen_items.keys()) - current_ids
+    for del_id in deleted_ids:
+        deleted_item = seen_items[del_id]
+        logs.append(
+            f"Deleted\t{deleted_item['name']}\t{deleted_item['path']}\t"
+            f"{deleted_item.get('created','-')}\t{deleted_item.get('modified','-')}\t{deleted_item.get('committed_by','-')}"
+        )
+        del seen_items[del_id]
 
-            deleted_ids = set(seen_items.keys()) - current_ids
-            for del_id in deleted_ids:
-                changes_batch.append({
-                    "type": "❌ Deleted",
-                    "name": "item_name",
-                    "path": "N/A",
-                    "created": "N/A",
-                    "modified": "N/A",
-                    "user": "N/A",
-                    "link": "#"
-                })
-                del seen_items[del_id]
+    save_seen_items(seen_items)
 
-            if current_time - last_email_time >= email_batch_interval and changes_batch:
-                html_rows = ""
-                for c in changes_batch:
-                    color = "#ffffff"
-                    if "🆕" in c["type"]: color="#d4edda"
-                    elif "✏️" in c["type"]: color="#fff3cd"
-                    elif "❌" in c["type"]: color="#f8d7da"
-                    html_rows += f"<tr style='background-color:{color}'><td>{c['type']}</td><td><a href='{c['link']}' target='_blank'>{c['name']}</a></td><td>{c['path']}</td><td>{c['created']}</td><td>{c['modified']}</td><td>{c['user']}</td></tr>"
+    # Always ensure md is updated
+    if not logs:
+        logs = ["\tNo new changes detected\t-\t-\t-\t-"]
 
-                html_body = f"""
-                <h2>Google Drive Updates</h2>
-                <table border='1' cellpadding='5' cellspacing='0'>
-                <tr><th>Change Type</th><th>Name</th><th>Path</th><th>Created</th><th>Modified</th><th>Committed By</th></tr>
-                {html_rows}
-                </table>
-                """
-                send_email(gmail_service, recipient_email, f"📢 Google Drive Updates (last {email_batch_interval} sec)", html_body)
-                changes_batch = []
-                last_email_time = current_time
-                save_seen_items(seen_items)
-
-            time.sleep(interval)
-
-        except Exception as e:
-            print(f"⚠️ Error: {str(e)}")
-            time.sleep(interval)
-
-# ---------------- INPUT SCHEMA ----------------
-class DriveWatcherInput(BaseModel):
-    folder_input: str = Field(..., description="Google Drive folder ID or full URL")
-    recipient_email: str = Field(..., description="Email address to notify")
-    email_batch_interval: int = Field(60, description="Batch interval in seconds for sending emails")
+    save_to_md(logs)
 
 # ---------------- CREWAI TOOL ----------------
+class DriveWatcherInput(BaseModel):
+    folder_input: str = Field(..., description="Google Drive folder ID or full URL")
+
 class DriveWatcherTool(BaseTool):
     name: str = "drive_watcher"
-    description: str = "Continuously watches a Google Drive folder and emails updates about changes."
+    description: str = "Checks a Google Drive folder ONCE for changes compared to previous run (recursive), logs into DriveWatcher.md"
     args_schema: Optional[Type[BaseModel]] = DriveWatcherInput
 
-    def _run(self, folder_input: str, recipient_email: str, email_batch_interval: int = 60) -> str:
-        SCOPES = [
-            "https://www.googleapis.com/auth/drive.metadata.readonly",
-            "https://www.googleapis.com/auth/gmail.send"
-        ]
+    def _run(self, folder_input: str) -> str:
+        SCOPES = ["https://www.googleapis.com/auth/drive.metadata.readonly"]
         creds = authenticate(SCOPES)
         drive_service = build("drive", "v3", credentials=creds)
-        gmail_service = build("gmail", "v1", credentials=creds)
-
         top_folder_id = extract_folder_id(folder_input)
-        print("🚀 Drive watcher tool started")
-        watch_folder(drive_service, gmail_service, top_folder_id, recipient_email, interval=15, email_batch_interval=email_batch_interval)
-        
-        return "✅ Drive watcher started. It will keep running until manually interrupted."
+
+        check_for_changes(drive_service, top_folder_id)
+
+        return "Change check completed. Logs stored in DriveWatcher.md"
+ 
