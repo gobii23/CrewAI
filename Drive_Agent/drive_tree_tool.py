@@ -1,4 +1,3 @@
-# tools/drive_tree_tool.py
 import os, pickle, re
 from typing import Optional, Type
 from googleapiclient.discovery import build
@@ -37,15 +36,13 @@ def extract_folder_id(folder_input: str) -> str:
 
 # ---------------- LIST DIRECTORY TREE ----------------
 def list_directory_tree(service, folder_id, indent=""):
+    """Recursively list folder contents as a tree."""
     try:
         results = service.files().list(
             q=f"'{folder_id}' in parents and trashed=false",
             fields="files(id, name, mimeType)"
         ).execute()
         items = results.get("files", [])
-
-        if not items:
-            return f"{indent}-- empty folder --\n"
 
         tree_output = ""
         for item in items:
@@ -58,6 +55,11 @@ def list_directory_tree(service, folder_id, indent=""):
     except Exception as e:
         return f"Error: {str(e)}"
 
+def get_folder_name(service, folder_id):
+    """Fetch the folder's own name."""
+    folder = service.files().get(fileId=folder_id, fields="name").execute()
+    return folder.get("name", "Unknown Folder")
+
 # ---------------- INPUT SCHEMA ----------------
 class DriveTreeInput(BaseModel):
     folder_input: str = Field(..., description="Google Drive folder ID or full folder URL")
@@ -65,10 +67,25 @@ class DriveTreeInput(BaseModel):
 # ---------------- CREWAI TOOL ----------------
 class DriveTreeTool(BaseTool):
     name: str = "drive_tree"
-    description: str = "Lists the directory tree of a Google Drive folder."
+    description: str = "Lists the directory tree of a Google Drive folder, saves it as Markdown."
     args_schema: Optional[Type[BaseModel]] = DriveTreeInput
 
     def _run(self, folder_input: str) -> str:
         drive_service = authenticate()
         folder_id = extract_folder_id(folder_input)
-        return list_directory_tree(drive_service, folder_id)
+
+        # Get folder name
+        folder_name = get_folder_name(drive_service, folder_id)
+
+        # Build tree with folder name on top
+        tree_output = f"# 📂 {folder_name}\n\n"
+        tree_output += "```\n"
+        tree_output += list_directory_tree(drive_service, folder_id)
+        tree_output += "```"
+
+        # Save into file
+        md_file = "Directory_Tree.md"
+        with open(md_file, "w", encoding="utf-8") as f:
+            f.write(tree_output)
+
+        return f"✅ Drive tree saved to **{md_file}**"
