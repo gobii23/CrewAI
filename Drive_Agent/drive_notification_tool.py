@@ -162,4 +162,3 @@ class DriveWatcherTool(BaseTool):
         check_for_changes(drive_service, top_folder_id)
 
         return "Change check completed. Logs stored in DriveWatcher.md"
- 
