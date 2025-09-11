@@ -6,7 +6,7 @@ from google.auth.transport.requests import Request
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 
-# ---------------- AUTHENTICATION ----------------
+# ---------------- AUTH ----------------
 def authenticate():
     SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
     creds = None
