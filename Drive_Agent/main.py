@@ -90,3 +90,4 @@ if st.button("Run Tasks") and folder_input:
                 st.table(df)
             else:
                 st.info("No updates yet.")
+ 
