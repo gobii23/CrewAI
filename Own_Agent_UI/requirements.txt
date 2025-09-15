@@ -1,0 +1,33 @@
+chromadb
+crewai
+crewai[tools]
+datasets
+langchain-google-genai
+matplotlib
+pandas
+pydantic
+scikit-learn
+seaborn
+torch
+transformers
+trl
+tqdm
+unsloth
+fastapi
+python-dotenv
+uvicorn
+requests
+streamlit
+
+# numpy==1.26.4
+# scipy==1.11.4
+# pandas==2.2.2
+# matplotlib==3.9.2
+# seaborn==0.13.2
+# scikit-learn==1.5.2
+# sqlalchemy==2.0.34
+# alembic==1.13.2
+# crewai==0.51.1
+# crewai-tools==0.11.0
+# embedchain==0.1.120
+# python-dotenv==1.0.1
