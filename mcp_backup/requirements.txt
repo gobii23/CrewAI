@@ -1,0 +1,7 @@
+wurlitzer
+pickle5
+plotly-resampler
+deepchecks
+autoviz
+tune_sklearn
+prophet
