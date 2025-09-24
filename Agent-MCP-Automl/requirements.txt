@@ -1,0 +1,52 @@
+# fastapi
+# uvicorn
+# crewai
+# crewai-tools
+# python-dotenv
+# pydantic
+# mcp
+# pandas
+# numpy
+# scikit-learn
+# matplotlib
+# seaborn
+# plotly
+# xgboost
+# shap
+# crewai[tools]
+# langchain
+# langchain-community
+# jupyter
+# ipykernels
+# httpx
+# requests
+# loguru
+# chromadb
+# faiss-cpu
+
+mcp
+numpy
+scikit-learn
+matplotlib
+seaborn
+plotly
+h2o
+autogluon
+shap
+optuna
+xgboost
+lightgbm
+catboost
+psutil
+python-dotenv
+pytest
+pytest-asyncio
+pytest-cov
+black
+isort
+flake8
+mypy
+mkdocs
+mkdocs-material
+pycaret[full]
+joblib
